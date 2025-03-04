@@ -1,6 +1,6 @@
 from flask import Flask,jsonify,make_response
 from flask_restful import Api,Resource,reqparse
-from flask_jwt_extended import JWTManager,create_access_token,jwt_required,get_jwt_identity
+from flask_jwt_extended import JWTManager,create_access_token,jwt_required,get_jwt_identity, unset_jwt_cookies
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash,check_password_hash 
 from model import db,User,Category,Product
@@ -65,6 +65,15 @@ class LoginResource(Resource):
             return {'access_token':access_token,"user":user_info}, 200
         else:
             return {'message':"invalide username and password"}, 401
+
+class Logout(Resource):
+    @jwt_required()
+    def post(self):
+        role = get_jwt_identity()
+        print(role)
+        resp = {"message":"Logged out successfully"}
+        unset_jwt_cookies(jsonify(resp))
+        return resp,200
 
 
 class UserInfo(Resource):
@@ -143,7 +152,7 @@ api.add_resource(CategoryResource,'/api/category')
 api.add_resource(UserInfo,'/api/info')
 api.add_resource(SignupResource,'/api/signup')
 api.add_resource(LoginResource,'/api/login')
-
+api.add_resource(Logout,'/logout')
 
 if __name__ == "__main__":
     app.run(debug=True)
