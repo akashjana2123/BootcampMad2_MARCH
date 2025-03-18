@@ -4,13 +4,21 @@ from flask_jwt_extended import JWTManager,create_access_token,jwt_required,get_j
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash,check_password_hash 
 from model import db,User,Category,Product
-
+from flask_caching import Cache
+import redis
+from celery_config import celery
 app = Flask(__name__)
+redis_client = redis.Redis(host='localhost',port=6379,db=0)
+cache = Cache(app,config={
+    'CACHE_TYPE':'redis',
+    'CACHE_REDIS':redis_client
+})
+
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///grocery.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'grocery'
-
+celery.conf.update(app.config)
 db.init_app(app)
 CORS(app,origins='*')
 jwt = JWTManager(app)
@@ -77,6 +85,7 @@ class Logout(Resource):
 
 
 class UserInfo(Resource):
+    @cache.cached(timeout=20)
     @jwt_required()
     def get(self):
         users = User.query.all()
@@ -148,6 +157,38 @@ class CategoryResource(Resource):
 
         return {"message":'category deleted successully'}, 200
 
+class StatPage(Resource):
+    def get(self):
+        roles_count = db.session.query(User.role,db.func.count(User.id)).group_by(User.role).all()
+
+        return jsonify({role:count for role,count in roles_count})
+
+class ExportResource(Resource):
+    @jwt_required()
+    def post(self,user_id):
+        user_role = get_jwt_identity()
+        if user_role !='admin':
+            return jsonify({'message':'access deneid'})
+        try:
+            from tasks import export_categories_details_as_csv
+
+            csv_data = export_categories_details_as_csv()
+
+            response = make_response(csv_data)
+
+            response.headers['Content-Disposition'] = 'attachment;filename=category_report.csv'
+
+            response.headers['Content-type'] = 'text/csv'
+
+            return response
+        except Exception as e:
+            return jsonify(e),500
+
+
+api.add_resource(ExportResource,'/exportcsv/<int:user_id>')
+
+
+api.add_resource(StatPage,'/api/stat')
 api.add_resource(CategoryResource,'/api/category')
 api.add_resource(UserInfo,'/api/info')
 api.add_resource(SignupResource,'/api/signup')
